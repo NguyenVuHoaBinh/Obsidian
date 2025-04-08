@@ -1,0 +1,81 @@
+# Execution Engine Configuration
+execution:
+  # HTTP Client Configuration
+  httpclient:
+    connect-timeout: 5000  # Connection timeout in milliseconds
+    read-timeout: 30000    # Read timeout in milliseconds
+    write-timeout: 30000   # Write timeout in milliseconds
+    max-in-memory-size: 16777216  # 16MB - Maximum size of in-memory buffer for responses
+    max-retry-attempts: 3  # Maximum number of retry attempts for HTTP requests
+    retry-backoff: 1000    # Initial backoff delay in milliseconds for retries
+
+  # Retry Configuration
+  retry:
+    max-attempts: 3        # Maximum number of retry attempts
+    initial-backoff: 1000  # Initial backoff delay in milliseconds
+    max-backoff: 10000     # Maximum backoff delay in milliseconds
+    backoff-multiplier: 2.0  # Multiplier for exponential backoff
+
+  # Rate Limiting Configuration
+  ratelimit:
+    limit-for-period: 50   # Number of API calls allowed per period
+    limit-refresh-period: 1  # Period duration in seconds
+    timeout-duration: 5    # Timeout duration in seconds when rate limit is reached
+
+  # Metrics Configuration
+  metrics:
+    percentiles: 0.5,0.95,0.99  # Percentiles to track for timing metrics
+    sla: 100,500,1000,5000      # SLA thresholds in milliseconds
+
+  # Cache Configuration
+  cache:
+    default-ttl: 300       # Default cache TTL in seconds
+    dependency-graph-ttl: 3600  # TTL for dependency graph cache in seconds
+    tool-ttl: 600          # TTL for tool cache in seconds
+
+  # Security Configuration
+  security:
+    allowed-origins: "*"   # Comma-separated list of allowed origins for CORS
+    require-ssl: true      # Whether to require HTTPS
+    jwt:
+      auth-claim: roles    # JWT claim containing authorities/roles
+      role-prefix: ROLE_   # Prefix to add to roles from JWT
+
+# Spring Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+      show-components: when_authorized
+  metrics:
+    distribution:
+      percentiles-histogram:
+        execution: true  # Enable histogram metrics for execution timings
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    viettel.dac.prototype.execution: INFO
+    org.springframework.web.reactive.function.client.ExchangeFunctions: DEBUG  # Log WebClient requests/responses
+
+# Spring Data Redis Configuration
+spring:
+  data:
+    redis:
+      # Redis configuration (uses values from main application.properties)
+      timeout: 5000
+  cache:
+    type: redis
+    redis:
+      time-to-live: 300000  # 5 minutes
+      use-key-prefix: true
+      key-prefix: exec
+

@@ -4,11 +4,13 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.URL;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
+import viettel.dac.prototype.tool.enums.HttpMethodType;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -24,30 +26,32 @@ public class Tool {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank
+    @NotBlank(message = "Tool name is required")
     @Column(name = "name", nullable = false, unique = true)
     private String name;
 
-    @NotBlank
+    @NotBlank(message = "Description is required")
     @Column(name = "description", nullable = false, columnDefinition = "TEXT")
     private String description;
 
-    @NotBlank
+    @NotBlank(message = "Endpoint is required")
+    @URL(message = "Endpoint must be a valid URL")
     @Column(name = "endpoint", nullable = false)
     private String endpoint;
 
     @Column(name = "authentication_type")
     private String authenticationType;
 
-    @NotNull
+    @NotNull(message = "HTTP method is required")
+    @Enumerated(EnumType.STRING)
     @Column(name = "http_method", nullable = false)
-    private String httpMethod;
+    private HttpMethodType httpMethod;
 
-    @Positive
+    @Positive(message = "Timeout must be a positive value")
     @Column(name = "timeout_ms", nullable = false)
     private Integer timeoutMs = 5000;
 
-    @OneToMany(mappedBy = "tool", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "tool", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<Parameter> parameters = new ArrayList<>();
 
     @OneToMany(mappedBy = "tool", cascade = CascadeType.ALL, orphanRemoval = true)

@@ -1,8 +1,11 @@
 package viettel.dac.prototype.tool.repository;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
+import viettel.dac.prototype.tool.enums.HttpMethodType;
 import viettel.dac.prototype.tool.model.Tool;
 
 import java.util.List;
@@ -25,7 +28,11 @@ public interface ToolRepository extends JpaRepository<Tool, Long> {
     @Query("SELECT DISTINCT t FROM Tool t LEFT JOIN FETCH t.parameters")
     List<Tool> findAllWithParameters();
 
-    // Find tools by HTTP method
-    List<Tool> findByHttpMethod(String httpMethod);
-}
+    // Fetch all tools with pagination
+    @Query(value = "SELECT DISTINCT t FROM Tool t LEFT JOIN FETCH t.parameters",
+            countQuery = "SELECT COUNT(DISTINCT t) FROM Tool t")
+    Page<Tool> findAllWithParameters(Pageable pageable);
 
+    // Find tools by HTTP method
+    List<Tool> findByHttpMethod(HttpMethodType httpMethod);
+}

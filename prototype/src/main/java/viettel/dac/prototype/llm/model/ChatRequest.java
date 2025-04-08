@@ -1,10 +1,19 @@
 package viettel.dac.prototype.llm.model;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
+/**
+ * DTO for chat request.
+ */
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class ChatRequest {
-    private String userId; // Optional: User identifier for multi-user support
-    private String message; // The user's input message
+    private String message;
+    private String userId;
 }
 
