@@ -1,4 +1,4 @@
-package viettel.dac.prototype.execution.exception;
+package viettel.dac.prototype.exception;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -15,46 +16,76 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import viettel.dac.prototype.execution.exception.*;
+import viettel.dac.prototype.tool.exception.*;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Global exception handler for the execution engine.
- * Provides consistent error responses for various exception types.
+ * Unified global exception handler for the application.
+ * Handles both tool and execution related exceptions.
  */
 @ControllerAdvice
 @Slf4j
 @RequiredArgsConstructor
-public class GlobalExceptionHandler {
+public class UnifiedGlobalExceptionHandler {
 
     private final MeterRegistry meterRegistry;
     private final Environment environment;
 
-    /**
-     * Handles circular dependency exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
-    @ExceptionHandler(CircularDependencyException.class)
-    public ResponseEntity<ErrorResponse> handleCircularDependency(CircularDependencyException ex, WebRequest request) {
+    // ==================== TOOL EXCEPTIONS ====================
+
+    @ExceptionHandler(ToolAlreadyExistsException.class)
+    public ResponseEntity<ErrorResponse> handleToolAlreadyExists(ToolAlreadyExistsException ex, WebRequest request) {
+        log.warn("Tool already exists: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.CONFLICT, "TOOL_ALREADY_EXISTS", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(viettel.dac.prototype.tool.exception.ToolNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleToolNotFound(viettel.dac.prototype.tool.exception.ToolNotFoundException ex, WebRequest request) {
+        log.warn("Tool not found: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.NOT_FOUND, "TOOL_NOT_FOUND", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(DependencyNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleDependencyNotFound(DependencyNotFoundException ex, WebRequest request) {
+        log.warn("Dependency not found: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "DEPENDENCY_NOT_FOUND", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(viettel.dac.prototype.tool.exception.CircularDependencyException.class)
+    public ResponseEntity<ErrorResponse> handleToolCircularDependency(viettel.dac.prototype.tool.exception.CircularDependencyException ex, WebRequest request) {
+        log.warn("Circular dependency detected: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "CIRCULAR_DEPENDENCY", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidToolDefinitionException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidToolDefinition(InvalidToolDefinitionException ex, WebRequest request) {
+        log.warn("Invalid tool definition: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, "INVALID_TOOL_DEFINITION", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(ToolExecutionException.class)
+    public ResponseEntity<ErrorResponse> handleToolExecution(ToolExecutionException ex, WebRequest request) {
+        log.error("Tool execution failed: {}", ex.getMessage(), ex);
+        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "TOOL_EXECUTION_FAILED", ex.getMessage(), request);
+    }
+
+    // ==================== EXECUTION EXCEPTIONS ====================
+
+    @ExceptionHandler(viettel.dac.prototype.execution.exception.CircularDependencyException.class)
+    public ResponseEntity<ErrorResponse> handleExecutionCircularDependency(viettel.dac.prototype.execution.exception.CircularDependencyException ex, WebRequest request) {
         log.error("Circular dependency detected: {}", ex.getMessage());
         meterRegistry.counter("execution.errors", "type", "circular_dependency").increment();
         return buildErrorResponse(HttpStatus.BAD_REQUEST, "CIRCULAR_DEPENDENCY", ex.getMessage(), request);
     }
 
-    /**
-     * Handles missing parameter exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(MissingParameterException.class)
     public ResponseEntity<ErrorResponse> handleMissingParameter(MissingParameterException ex, WebRequest request) {
         log.error("Missing parameter: {}", ex.getMessage());
@@ -62,13 +93,6 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, "MISSING_PARAMETER", ex.getMessage(), request);
     }
 
-    /**
-     * Handles parameter validation exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(ParameterValidationException.class)
     public ResponseEntity<ErrorResponse> handleParameterValidation(ParameterValidationException ex, WebRequest request) {
         log.error("Parameter validation error: {}", ex.getMessage());
@@ -76,27 +100,13 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, "PARAMETER_VALIDATION_ERROR", ex.getMessage(), request);
     }
 
-    /**
-     * Handles tool not found exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
-    @ExceptionHandler(ToolNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleToolNotFound(ToolNotFoundException ex, WebRequest request) {
+    @ExceptionHandler(viettel.dac.prototype.execution.exception.ToolNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleExecutionToolNotFound(viettel.dac.prototype.execution.exception.ToolNotFoundException ex, WebRequest request) {
         log.error("Tool not found: {}", ex.getMessage());
         meterRegistry.counter("execution.errors", "type", "tool_not_found").increment();
         return buildErrorResponse(HttpStatus.NOT_FOUND, "TOOL_NOT_FOUND", ex.getMessage(), request);
     }
 
-    /**
-     * Handles invalid execution order exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(InvalidExecutionOrderException.class)
     public ResponseEntity<ErrorResponse> handleInvalidExecutionOrder(InvalidExecutionOrderException ex, WebRequest request) {
         log.error("Invalid execution order: {}", ex.getMessage());
@@ -104,13 +114,6 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, "INVALID_EXECUTION_ORDER", ex.getMessage(), request);
     }
 
-    /**
-     * Handles unsupported HTTP method exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(UnsupportedHttpMethodException.class)
     public ResponseEntity<ErrorResponse> handleUnsupportedHttpMethod(UnsupportedHttpMethodException ex, WebRequest request) {
         log.error("Unsupported HTTP method: {}", ex.getMessage());
@@ -118,13 +121,6 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, "UNSUPPORTED_HTTP_METHOD", ex.getMessage(), request);
     }
 
-    /**
-     * Handles execution failure exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(ExecutionFailureException.class)
     public ResponseEntity<ErrorResponse> handleExecutionFailure(ExecutionFailureException ex, WebRequest request) {
         log.error("Execution failure: {}", ex.getMessage(), ex);
@@ -132,13 +128,6 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "EXECUTION_FAILURE", ex.getMessage(), request);
     }
 
-    /**
-     * Handles invalid request exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(InvalidRequestException.class)
     public ResponseEntity<ErrorResponse> handleInvalidRequest(InvalidRequestException ex, WebRequest request) {
         log.error("Invalid request: {}", ex.getMessage());
@@ -146,13 +135,8 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", ex.getMessage(), request);
     }
 
-    /**
-     * Handles validation exceptions from the Jakarta validation framework.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
+    // ==================== COMMON EXCEPTIONS ====================
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleMethodArgumentNotValid(MethodArgumentNotValidException ex, WebRequest request) {
         List<String> errors = ex.getBindingResult()
@@ -162,7 +146,7 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.toList());
 
         log.error("Validation error: {}", errors.toString());
-        meterRegistry.counter("execution.errors", "type", "validation").increment();
+        meterRegistry.counter("app.errors", "type", "validation").increment();
 
         return buildErrorResponse(
                 HttpStatus.BAD_REQUEST,
@@ -172,13 +156,6 @@ public class GlobalExceptionHandler {
         );
     }
 
-    /**
-     * Handles constraint violation exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex, WebRequest request) {
         List<String> errors = ex.getConstraintViolations()
@@ -187,7 +164,7 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.toList());
 
         log.error("Constraint violation: {}", errors.toString());
-        meterRegistry.counter("execution.errors", "type", "constraint_violation").increment();
+        meterRegistry.counter("app.errors", "type", "constraint_violation").increment();
 
         return buildErrorResponse(
                 HttpStatus.BAD_REQUEST,
@@ -197,18 +174,11 @@ public class GlobalExceptionHandler {
         );
     }
 
-    /**
-     * Handles method argument type mismatch exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ErrorResponse> handleMethodArgumentTypeMismatch(MethodArgumentTypeMismatchException ex, WebRequest request) {
         String error = ex.getName() + " should be of type " + ex.getRequiredType().getName();
         log.error("Method argument type mismatch: {}", error);
-        meterRegistry.counter("execution.errors", "type", "type_mismatch").increment();
+        meterRegistry.counter("app.errors", "type", "type_mismatch").increment();
 
         return buildErrorResponse(
                 HttpStatus.BAD_REQUEST,
@@ -218,18 +188,11 @@ public class GlobalExceptionHandler {
         );
     }
 
-    /**
-     * Handles missing request parameter exceptions.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(MissingServletRequestParameterException.class)
     public ResponseEntity<ErrorResponse> handleMissingServletRequestParameter(MissingServletRequestParameterException ex, WebRequest request) {
         String error = ex.getParameterName() + " parameter is missing";
         log.error("Missing request parameter: {}", error);
-        meterRegistry.counter("execution.errors", "type", "missing_parameter").increment();
+        meterRegistry.counter("app.errors", "type", "missing_parameter").increment();
 
         return buildErrorResponse(
                 HttpStatus.BAD_REQUEST,
@@ -239,17 +202,10 @@ public class GlobalExceptionHandler {
         );
     }
 
-    /**
-     * Handles generic exceptions not specifically handled by other methods.
-     *
-     * @param ex The exception
-     * @param request The web request
-     * @return A standardized error response
-     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex, WebRequest request) {
         log.error("Unhandled exception", ex);
-        meterRegistry.counter("execution.errors", "type", "unhandled").increment();
+        meterRegistry.counter("app.errors", "type", "unhandled").increment();
 
         String errorMessage = isProductionProfile() ?
                 "An unexpected error occurred. Please try again later." :
@@ -266,6 +222,8 @@ public class GlobalExceptionHandler {
                 errorId
         );
     }
+
+    // ==================== HELPER METHODS ====================
 
     // Helper method to build error responses
     private ResponseEntity<ErrorResponse> buildErrorResponse(

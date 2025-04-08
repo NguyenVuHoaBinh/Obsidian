@@ -263,6 +263,7 @@ public class ExecutionEngineService {
         }
     }
 
+
     /**
      * Executes a tool by making an HTTP request to its endpoint.
      * Includes retry capabilities for transient errors.
@@ -274,7 +275,9 @@ public class ExecutionEngineService {
      * @throws ExecutionFailureException If the tool execution fails.
      */
     @Retryable(
-            value = {HttpServerErrorException.class, WebClientResponseException.InternalServerError.class},
+            retryFor = {HttpServerErrorException.class, WebClientResponseException.InternalServerError.class},
+            noRetryFor = {IllegalArgumentException.class},
+            notRecoverable = {SecurityException.class},
             maxAttempts = 3,
             backoff = @Backoff(delay = 1000, multiplier = 2)
     )
@@ -282,8 +285,8 @@ public class ExecutionEngineService {
         log.debug("Executing tool: {} with HTTP method: {}", tool.getName(), tool.getHttpMethod());
 
         try {
-            return switch (tool.getHttpMethod().toUpperCase()) {
-                case "GET" -> webClient.get()
+            return switch (tool.getHttpMethod()) {
+                case GET -> webClient.get()
                         .uri(uriBuilder -> {
                             uriBuilder.path(tool.getEndpoint());
                             params.forEach(uriBuilder::queryParam);
@@ -293,14 +296,14 @@ public class ExecutionEngineService {
                         .bodyToMono(Map.class)
                         .timeout(Duration.ofMillis(tool.getTimeoutMs()))
                         .block();
-                case "POST" -> webClient.post()
+                case POST -> webClient.post()
                         .uri(tool.getEndpoint())
                         .bodyValue(params)
                         .retrieve()
                         .bodyToMono(Map.class)
                         .timeout(Duration.ofMillis(tool.getTimeoutMs()))
                         .block();
-                case "PUT" -> {
+                case PUT -> {
                     webClient.put()
                             .uri(tool.getEndpoint())
                             .bodyValue(params)
@@ -310,7 +313,7 @@ public class ExecutionEngineService {
                             .block();
                     yield Map.of("status", "success");
                 }
-                case "DELETE" -> {
+                case DELETE -> {
                     webClient.delete()
                             .uri(uriBuilder -> {
                                 uriBuilder.path(tool.getEndpoint());
@@ -323,7 +326,7 @@ public class ExecutionEngineService {
                             .block();
                     yield Map.of("status", "success");
                 }
-                default -> throw new UnsupportedHttpMethodException(tool.getHttpMethod());
+                case PATCH, HEAD, OPTIONS -> throw new UnsupportedHttpMethodException(tool.getHttpMethod().name());
             };
         } catch (WebClientResponseException e) {
             log.error("WebClient error when executing tool {}: {} - {}",

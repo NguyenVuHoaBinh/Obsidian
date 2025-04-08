@@ -17,9 +17,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import viettel.dac.prototype.exception.UnifiedGlobalExceptionHandler;
 import viettel.dac.prototype.tool.dto.ToolDTO;
-import viettel.dac.prototype.tool.exception.GlobalExceptionHandler.ErrorResponse;
 import viettel.dac.prototype.tool.service.ToolService;
+
 
 import java.net.URI;
 import java.util.List;
@@ -48,9 +49,9 @@ public class ToolController {
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Tool successfully registered"),
             @ApiResponse(responseCode = "400", description = "Invalid tool configuration",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+                    content = @Content(schema = @Schema(implementation = UnifiedGlobalExceptionHandler.ErrorResponse.class))),
             @ApiResponse(responseCode = "409", description = "Tool with the same name already exists",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+                    content = @Content(schema = @Schema(implementation = UnifiedGlobalExceptionHandler.ErrorResponse.class)))
     })
     @PostMapping
     public ResponseEntity<ToolDTO> registerTool(
@@ -111,7 +112,7 @@ public class ToolController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Successfully retrieved tool"),
             @ApiResponse(responseCode = "404", description = "Tool not found",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+                    content = @Content(schema = @Schema(implementation = UnifiedGlobalExceptionHandler.ErrorResponse.class)))
     })
     @GetMapping("/{name}")
     public ResponseEntity<ToolDTO> getToolByName(
@@ -136,7 +137,7 @@ public class ToolController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Successfully retrieved dependencies"),
             @ApiResponse(responseCode = "404", description = "Tool not found",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+                    content = @Content(schema = @Schema(implementation = UnifiedGlobalExceptionHandler.ErrorResponse.class)))
     })
     @GetMapping("/{name}/dependencies")
     public ResponseEntity<List<String>> getToolDependencies(
@@ -161,7 +162,7 @@ public class ToolController {
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Tool successfully deleted"),
             @ApiResponse(responseCode = "404", description = "Tool not found",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+                    content = @Content(schema = @Schema(implementation = UnifiedGlobalExceptionHandler.ErrorResponse.class)))
     })
     @DeleteMapping("/{name}")
     public ResponseEntity<Void> deleteTool(
@@ -188,9 +189,9 @@ public class ToolController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Tool test successful"),
             @ApiResponse(responseCode = "404", description = "Tool not found",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+                    content = @Content(schema = @Schema(implementation = UnifiedGlobalExceptionHandler.ErrorResponse.class))),
             @ApiResponse(responseCode = "500", description = "Tool execution failed",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+                    content = @Content(schema = @Schema(implementation = UnifiedGlobalExceptionHandler.ErrorResponse.class)))
     })
     @PostMapping("/{name}/test")
     public ResponseEntity<Map<String, Object>> testTool(
