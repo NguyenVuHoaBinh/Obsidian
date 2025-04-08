@@ -18,7 +18,7 @@ spring:
   # JPA Configuration
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MariaDBDialect
@@ -128,10 +128,16 @@ management:
         enabled: true
 
 # LLM Configuration
+# LLM Configuration
 llm:
+  api:
+    url: https://api.openai.com/v1/chat/completions  # OpenAI API endpoint
+    key:
   openai:
     model: gpt-4o
+    # You can remove this if you're using llm.api.key instead
     api-key:
+
   conversation:
     max-history: 10
     ttl-hours: 24

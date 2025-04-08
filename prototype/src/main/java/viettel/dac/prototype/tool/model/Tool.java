@@ -24,7 +24,7 @@ import java.util.List;
 public class Tool {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Integer id;  // Change from Long to Integer
 
     @NotBlank(message = "Tool name is required")
     @Column(name = "name", nullable = false, unique = true)

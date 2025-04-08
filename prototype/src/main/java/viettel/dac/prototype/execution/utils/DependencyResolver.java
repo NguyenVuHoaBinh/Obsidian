@@ -35,7 +35,7 @@ public class DependencyResolver {
      * @throws CircularDependencyException if a circular dependency is detected.
      * @throws ToolNotFoundException if a tool referenced by an intent is not found.
      */
-    @Cacheable(value = "dependencyGraphs", key = "T(java.util.stream.Collectors).joining(',', #intents.![intent])")
+    @Cacheable(value = "dependencyGraphs", keyGenerator = "intentListKeyGenerator")
     public List<Intent> resolveExecutionOrder(List<Intent> intents) {
         if (intents == null || intents.isEmpty()) {
             log.warn("No intents provided for dependency resolution");
@@ -107,65 +107,115 @@ public class DependencyResolver {
      * @return Ordered list of intents based on dependencies.
      * @throws CircularDependencyException if a circular dependency is detected.
      */
+    /**
+     * Performs topological sorting on the dependency graph to determine execution order.
+     *
+     * @param intents           The list of intents to sort.
+     * @param dependencyGraph   The dependency graph mapping tools to their dependencies.
+     * @return Ordered list of intents based on dependencies.
+     * @throws CircularDependencyException if a circular dependency is detected.
+     */
     private List<Intent> topologicalSort(List<Intent> intents, Map<String, Set<String>> dependencyGraph) {
-        // Create a map for easy intent lookup by name
-        Map<String, Intent> intentMap = intents.stream()
-                .collect(Collectors.toMap(Intent::getIntent, intent -> intent));
+        // Create a map for intent lookup by name and unique identifier
+        Map<String, Intent> intentLookup = new HashMap<>();
+        Map<String, String> intentToUniqueId = new HashMap<>();
 
-        // Build a graph with reversed edges (dependency -> dependent)
-        Map<String, Set<String>> reverseGraph = buildReverseGraph(dependencyGraph);
+        // Assign a unique ID to each intent and build the lookup maps
+        for (int i = 0; i < intents.size(); i++) {
+            Intent intent = intents.get(i);
+            String uniqueId = intent.getIntent() + "_" + i; // Use index as a suffix to create unique IDs
+            intentLookup.put(uniqueId, intent);
+            intentToUniqueId.put(uniqueId, intent.getIntent()); // Maps back to original intent name
+        }
+
+        // Build modified dependency graph with unique IDs
+        Map<String, Set<String>> uniqueIdGraph = new HashMap<>();
+        for (String uniqueId : intentLookup.keySet()) {
+            String intentName = intentToUniqueId.get(uniqueId);
+            Set<String> dependencies = dependencyGraph.getOrDefault(intentName, Collections.emptySet());
+
+            // For each dependency name, find all intents with that name
+            Set<String> uniqueDependencies = new HashSet<>();
+            for (String dependency : dependencies) {
+                // Find all unique IDs that map to this dependency name
+                for (Map.Entry<String, String> entry : intentToUniqueId.entrySet()) {
+                    if (entry.getValue().equals(dependency)) {
+                        uniqueDependencies.add(entry.getKey());
+                    }
+                }
+            }
+
+            uniqueIdGraph.put(uniqueId, uniqueDependencies);
+        }
 
         // Calculate in-degree for each node (number of dependencies)
-        Map<String, Integer> inDegree = calculateInDegrees(dependencyGraph);
+        Map<String, Integer> inDegree = new HashMap<>();
 
-        // Queue of nodes with no dependencies (in-degree of 0)
-        Queue<String> queue = new LinkedList<>();
-        for (String tool : inDegree.keySet()) {
-            if (inDegree.get(tool) == 0) {
-                queue.add(tool);
-                log.trace("Added to initial queue: {} (no dependencies)", tool);
+        // Initialize all nodes with in-degree 0
+        for (String node : uniqueIdGraph.keySet()) {
+            inDegree.put(node, 0);
+        }
+
+        // Calculate in-degrees
+        for (Set<String> dependencies : uniqueIdGraph.values()) {
+            for (String dependency : dependencies) {
+                inDegree.put(dependency, inDegree.getOrDefault(dependency, 0) + 1);
             }
         }
 
-        List<String> sortedToolNames = new ArrayList<>();
+        // Queue of nodes with no dependencies (in-degree of 0)
+        Queue<String> queue = new LinkedList<>();
+        for (String node : inDegree.keySet()) {
+            if (inDegree.get(node) == 0) {
+                queue.add(node);
+                log.trace("Added to initial queue: {} (no dependencies)", node);
+            }
+        }
+
+        List<String> sortedUniqueIds = new ArrayList<>();
 
         // Process the queue
         while (!queue.isEmpty()) {
             String current = queue.poll();
-            sortedToolNames.add(current);
+            sortedUniqueIds.add(current);
             log.trace("Processing node: {}", current);
 
             // For each node that depends on the current node
-            for (String dependent : reverseGraph.getOrDefault(current, Collections.emptySet())) {
-                // Reduce its in-degree
-                inDegree.put(dependent, inDegree.get(dependent) - 1);
-                log.trace("Reducing in-degree of {} to {}", dependent, inDegree.get(dependent));
+            for (Map.Entry<String, Set<String>> entry : uniqueIdGraph.entrySet()) {
+                String dependent = entry.getKey();
+                Set<String> dependencies = entry.getValue();
 
-                // If it has no more dependencies, add it to the queue
-                if (inDegree.get(dependent) == 0) {
-                    queue.add(dependent);
-                    log.trace("Added to queue: {} (no remaining dependencies)", dependent);
+                if (dependencies.contains(current)) {
+                    // Reduce its in-degree
+                    inDegree.put(dependent, inDegree.get(dependent) - 1);
+                    log.trace("Reducing in-degree of {} to {}", dependent, inDegree.get(dependent));
+
+                    // If it has no more dependencies, add it to the queue
+                    if (inDegree.get(dependent) == 0) {
+                        queue.add(dependent);
+                        log.trace("Added to queue: {} (no remaining dependencies)", dependent);
+                    }
                 }
             }
         }
 
         // Check for circular dependencies
-        if (sortedToolNames.size() != dependencyGraph.size()) {
+        if (sortedUniqueIds.size() != uniqueIdGraph.size()) {
             log.error("Circular dependency detected! Processed {} of {} nodes",
-                    sortedToolNames.size(), dependencyGraph.size());
+                    sortedUniqueIds.size(), uniqueIdGraph.size());
 
-            Set<String> unprocessedNodes = new HashSet<>(dependencyGraph.keySet());
-            unprocessedNodes.removeAll(sortedToolNames);
+            Set<String> unprocessedNodes = new HashSet<>(uniqueIdGraph.keySet());
+            unprocessedNodes.removeAll(sortedUniqueIds);
             log.error("Unprocessed nodes involved in circular dependencies: {}",
                     String.join(", ", unprocessedNodes));
 
-            String circularPath = findCircularPath(dependencyGraph, unprocessedNodes);
+            String circularPath = findCircularPath(uniqueIdGraph, unprocessedNodes);
             throw new CircularDependencyException("Circular dependency detected: " + circularPath);
         }
 
-        // Map sorted tool names back to intents
-        List<Intent> orderedIntents = sortedToolNames.stream()
-                .map(intentMap::get)
+        // Map sorted unique IDs back to intents
+        List<Intent> orderedIntents = sortedUniqueIds.stream()
+                .map(intentLookup::get)
                 .collect(Collectors.toList());
 
         return orderedIntents;
@@ -228,38 +278,94 @@ public class DependencyResolver {
      * @return A string representation of a circular path in the graph
      */
     private String findCircularPath(Map<String, Set<String>> graph, Set<String> startNodes) {
+        if (startNodes.isEmpty()) {
+            return "Unknown circular dependency - no start nodes provided";
+        }
+
         // Start with any node involved in a circular dependency
         String startNode = startNodes.iterator().next();
 
-        // Find a cycle using DFS
+        // Track visited nodes and the current recursion path
         Set<String> visited = new HashSet<>();
-        Set<String> recursionStack = new HashSet<>();
-        Map<String, String> predecessor = new HashMap<>();
+        List<String> currentPath = new ArrayList<>();
+        Map<String, Boolean> onStack = new HashMap<>();
 
-        findCycle(graph, startNode, visited, recursionStack, predecessor);
+        // Initialize for all nodes
+        for (String node : graph.keySet()) {
+            onStack.put(node, false);
+        }
 
-        // Reconstruct the cycle path
-        if (!recursionStack.isEmpty()) {
-            String current = recursionStack.iterator().next();
-            List<String> cycle = new ArrayList<>();
-            cycle.add(current);
+        // Find the cycle
+        detectCycle(graph, startNode, visited, currentPath, onStack);
 
-            String prev = current;
-            current = predecessor.get(current);
+        // If we found a cycle, return its representation
+        if (!currentPath.isEmpty()) {
+            return String.join(" -> ", currentPath);
+        }
 
-            while (!current.equals(cycle.get(0))) {
-                cycle.add(current);
-                prev = current;
-                current = predecessor.get(current);
+        // Fallback - check all unvisited nodes if we didn't find a cycle yet
+        for (String node : startNodes) {
+            if (!visited.contains(node)) {
+                detectCycle(graph, node, visited, currentPath, onStack);
+                if (!currentPath.isEmpty()) {
+                    return String.join(" -> ", currentPath);
+                }
             }
+        }
 
-            cycle.add(cycle.get(0)); // Complete the cycle
-            Collections.reverse(cycle); // For correct order
-
-            return String.join(" -> ", cycle);
+        // Last resort - try to at least report the nodes involved
+        if (!startNodes.isEmpty()) {
+            return "Circular dependency involving: " + String.join(", ", startNodes);
         }
 
         return "Unknown circular dependency";
+    }
+
+    /**
+     * Detects a cycle in the graph using DFS and updates the currentPath if found.
+     *
+     * @param graph The dependency graph
+     * @param node The current node being visited
+     * @param visited Set of all visited nodes
+     * @param currentPath Will be updated with the cycle path if found
+     * @param onStack Marks if a node is currently on the recursion stack
+     * @return true if a cycle is found, false otherwise
+     */
+    private boolean detectCycle(Map<String, Set<String>> graph, String node, Set<String> visited,
+                                List<String> currentPath, Map<String, Boolean> onStack) {
+        visited.add(node);
+        onStack.put(node, true);
+
+        // Visit all dependencies
+        for (String dependency : graph.getOrDefault(node, Collections.emptySet())) {
+            // Skip if not in graph (could happen in unique ID cases)
+            if (!graph.containsKey(dependency)) {
+                continue;
+            }
+
+            // If not visited yet, recursively visit
+            if (!visited.contains(dependency)) {
+                if (detectCycle(graph, dependency, visited, currentPath, onStack)) {
+                    // Add to path only if it's not already added (to avoid duplicates)
+                    if (currentPath.isEmpty() || !currentPath.get(0).equals(dependency)) {
+                        currentPath.add(0, node);
+                    }
+                    return true;
+                }
+            }
+            // If already on stack, we found a cycle
+            else if (onStack.get(dependency)) {
+                // Reconstruct cycle path
+                currentPath.clear();
+                currentPath.add(dependency); // Start with the node where cycle detected
+                currentPath.add(node);       // Add current node
+                return true;
+            }
+        }
+
+        // Remove from recursion stack when backtracking
+        onStack.put(node, false);
+        return false;
     }
 
     /**

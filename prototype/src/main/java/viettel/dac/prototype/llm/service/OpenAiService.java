@@ -25,6 +25,7 @@ import viettel.dac.prototype.llm.exception.LlmApiException;
 import viettel.dac.prototype.llm.exception.LlmParsingException;
 import viettel.dac.prototype.llm.model.Conversation;
 import viettel.dac.prototype.llm.model.IntentAnalysisResult;
+import viettel.dac.prototype.tool.service.ToolService;
 
 
 import java.util.*;
@@ -51,6 +52,8 @@ public class OpenAiService implements LlmService {
 
     private OpenAIClient openAIClient;
 
+    private final ToolService toolService;
+
     @PostConstruct
     public void init() {
         this.openAIClient = OpenAIOkHttpClient.builder()
@@ -66,6 +69,7 @@ public class OpenAiService implements LlmService {
     public IntentAnalysisResult analyzeIntent(String userMessage, Conversation conversation) {
         try {
             String prompt = createIntentAnalysisPrompt(userMessage, conversation);
+            log.debug("Sending intent analysis prompt to OpenAI");
 
             ResponseCreateParams params = ResponseCreateParams.builder()
                     .model(convertToModelEnum(defaultModel))
@@ -73,7 +77,12 @@ public class OpenAiService implements LlmService {
                     .build();
 
             Response response = openAIClient.responses().create(params);
-            return parseIntentAnalysisResponse(String.valueOf(response));
+
+            // Extract the text content from the response
+            String responseText = extractTextFromResponse(response);
+            log.debug("Received intent analysis response from OpenAI");
+
+            return parseIntentAnalysisResponse(responseText);
         } catch (Exception e) {
             log.error("Error analyzing intent with OpenAI", e);
             throw new LlmApiException("Failed to analyze intent", e);
@@ -87,6 +96,7 @@ public class OpenAiService implements LlmService {
     public String generateResponse(Conversation conversation, ExecutionResult executionResult) {
         try {
             String prompt = createResponseGenerationPrompt(conversation, executionResult);
+            log.debug("Sending response generation prompt to OpenAI");
 
             ResponseCreateParams params = ResponseCreateParams.builder()
                     .model(convertToModelEnum(defaultModel))
@@ -94,7 +104,9 @@ public class OpenAiService implements LlmService {
                     .build();
 
             Response response = openAIClient.responses().create(params);
-            return response.toString();
+
+            // Extract and return the text content
+            return extractTextFromResponse(response);
 
         } catch (Exception e) {
             log.error("Error generating response with OpenAI", e);
@@ -109,6 +121,7 @@ public class OpenAiService implements LlmService {
     public String generateResponseFromFeedback(Conversation conversation, ExecutionFeedback feedback) {
         try {
             String prompt = createResponseFromFeedbackPrompt(conversation, feedback);
+            log.debug("Sending feedback-based response prompt to OpenAI");
 
             ResponseCreateParams params = ResponseCreateParams.builder()
                     .model(convertToModelEnum(defaultModel))
@@ -116,9 +129,11 @@ public class OpenAiService implements LlmService {
                     .build();
 
             Response response = openAIClient.responses().create(params);
-            return response.toString();
+
+            // Extract and return the text content
+            return extractTextFromResponse(response);
         } catch (Exception e) {
-            log.error("Error generating response with OpenAI", e);
+            log.error("Error generating response from feedback with OpenAI", e);
             throw new LlmApiException("Failed to generate response from feedback", e);
         }
     }
@@ -130,6 +145,7 @@ public class OpenAiService implements LlmService {
     public String generateDirectResponse(String userMessage, Conversation conversation) {
         try {
             String prompt = createDirectResponsePrompt(userMessage, conversation);
+            log.debug("Sending direct response prompt to OpenAI");
 
             ResponseCreateParams params = ResponseCreateParams.builder()
                     .model(convertToModelEnum(defaultModel))
@@ -137,10 +153,32 @@ public class OpenAiService implements LlmService {
                     .build();
 
             Response response = openAIClient.responses().create(params);
-            return response.toString();
+
+            // Extract and return the text content
+            return extractTextFromResponse(response);
         } catch (Exception e) {
             log.error("Error generating direct response with OpenAI", e);
             throw new LlmApiException("Failed to generate direct response", e);
+        }
+    }
+
+    /**
+     * Helper method to extract the text content from the OpenAI response.
+     */
+    private String extractTextFromResponse(Response response) {
+        StringBuilder textBuilder = new StringBuilder();
+
+        try {
+            response.output().stream()
+                    .flatMap(item -> item.message().stream())
+                    .flatMap(message -> message.content().stream())
+                    .flatMap(content -> content.outputText().stream())
+                    .forEach(outputText -> textBuilder.append(outputText.text()));
+
+            return textBuilder.toString();
+        } catch (Exception e) {
+            log.error("Error extracting text from response", e);
+            throw new LlmParsingException("Failed to extract text from response", e);
         }
     }
 
@@ -179,12 +217,16 @@ public class OpenAiService implements LlmService {
             }
             
             If no specific tool intent is detected, return an empty intents array.
+            If the tool missing the tool requirement, ask user to provide required information to complete.
+            
+            Current tools available: %s
             
             Current Message: %s
             
             Conversation History:
             %s
             """,
+                toolService.getAllTools(),
                 userMessage,
                 conversation.getFormattedHistory(maxConversationHistory)
         );
@@ -331,7 +373,22 @@ public class OpenAiService implements LlmService {
      */
     private IntentAnalysisResult parseIntentAnalysisResponse(String response) {
         try {
-            JsonNode root = objectMapper.readTree(response);
+            // Strip Markdown code block delimiters if present
+            String jsonContent = response;
+            if (response.startsWith("```")) {
+                // Find the first newline after the opening delimiter
+                int startIndex = response.indexOf('\n');
+                if (startIndex != -1) {
+                    // Find the closing delimiter
+                    int endIndex = response.lastIndexOf("```");
+                    if (endIndex > startIndex) {
+                        // Extract just the JSON content
+                        jsonContent = response.substring(startIndex + 1, endIndex).trim();
+                    }
+                }
+            }
+
+            JsonNode root = objectMapper.readTree(jsonContent);
 
             List<Intent> intents = new ArrayList<>();
             JsonNode intentsNode = root.path("intents");

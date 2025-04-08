@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface ToolRepository extends JpaRepository<Tool, Long> {
+public interface ToolRepository extends JpaRepository<Tool, Integer> {
 
     // Find a tool by its unique name
     Optional<Tool> findByName(String name);
@@ -22,7 +22,7 @@ public interface ToolRepository extends JpaRepository<Tool, Long> {
 
     // Fetch a tool with its parameters (eager loading)
     @Query("SELECT t FROM Tool t LEFT JOIN FETCH t.parameters WHERE t.id = :id")
-    Optional<Tool> findByIdWithParameters(Long id);
+    Optional<Tool> findByIdWithParameters(Integer id);
 
     // Fetch all tools with their parameters (eager loading)
     @Query("SELECT DISTINCT t FROM Tool t LEFT JOIN FETCH t.parameters")

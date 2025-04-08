@@ -17,7 +17,7 @@ import java.time.LocalDateTime;
 public class Dependency {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Integer id;  // Change from Long to Integer
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tool_id", nullable = false)

@@ -20,7 +20,7 @@ import viettel.dac.prototype.tool.enums.ParameterType;
 public class Parameter {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private Integer id;  // Change from Long to Integer
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "tool_id", nullable = false)
