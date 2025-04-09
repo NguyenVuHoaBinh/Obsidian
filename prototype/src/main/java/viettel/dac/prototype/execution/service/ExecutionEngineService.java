@@ -17,6 +17,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import viettel.dac.prototype.execution.enums.ExecutionState;
 import viettel.dac.prototype.execution.enums.ExecutionStatus;
 import viettel.dac.prototype.execution.exception.ExecutionFailureException;
+import viettel.dac.prototype.execution.exception.MissingDependencyException;
 import viettel.dac.prototype.execution.exception.MissingParameterException;
 import viettel.dac.prototype.execution.exception.ToolNotFoundException;
 import viettel.dac.prototype.execution.exception.UnsupportedHttpMethodException;
@@ -61,14 +62,91 @@ public class ExecutionEngineService {
 
         ExecutionResult result = new ExecutionResult();
         result.setAnalysisId(analysisResult.getAnalysisId());
+        result.setExecutionTime(LocalDateTime.now());
 
         try {
             // Resolve execution order based on dependencies
-            List<Intent> orderedIntents = dependencyResolver.resolveExecutionOrder(
-                    analysisResult.getIntents()
-            );
-            log.debug("Resolved execution order: {}",
-                    orderedIntents.stream().map(Intent::getIntent).collect(Collectors.joining(", ")));
+            List<Intent> orderedIntents;
+            try {
+                orderedIntents = dependencyResolver.resolveExecutionOrder(
+                        analysisResult.getIntents()
+                );
+                log.debug("Resolved execution order: {}",
+                        orderedIntents.stream().map(Intent::getIntent).collect(Collectors.joining(", ")));
+            } catch (MissingDependencyException e) {
+                log.error("Missing dependencies detected: {}", e.getMessage());
+
+                // Create execution record for each intent with failed status and error message
+                for (Intent intent : analysisResult.getIntents()) {
+                    ExecutionRecord record = new ExecutionRecord();
+                    record.setIntent(intent.getIntent());
+                    record.setParameters(intent.getParameters());
+                    record.setStartTime(LocalDateTime.now());
+                    record.setEndTime(LocalDateTime.now());
+                    record.setStatus(ExecutionStatus.FAILED_PERMANENT);
+
+                    // Check if this intent has missing dependencies
+                    if (e.getMissingDependencies().containsKey(intent.getIntent())) {
+                        List<String> missingDeps = e.getMissingDependencies().get(intent.getIntent());
+                        StringBuilder errorMessage = new StringBuilder("Missing required dependencies: ");
+
+                        for (int i = 0; i < missingDeps.size(); i++) {
+                            String depName = missingDeps.get(i);
+                            MissingDependencyException.ToolMetadata metadata = e.getMissingToolsMetadata().get(depName);
+
+                            if (i > 0) {
+                                errorMessage.append(", ");
+                            }
+
+                            errorMessage.append(depName);
+
+                            if (metadata != null) {
+                                errorMessage.append(" (").append(metadata.description()).append(")");
+
+                                // Add parameter information
+                                if (!metadata.parameters().isEmpty()) {
+                                    errorMessage.append("\nParameters for ").append(depName).append(":");
+                                    for (MissingDependencyException.ParameterInfo param : metadata.parameters()) {
+                                        errorMessage.append("\n  - ").append(param.name())
+                                                .append(" (").append(param.type()).append(")");
+                                        if (param.required()) {
+                                            errorMessage.append(" [REQUIRED]");
+                                        }
+                                        errorMessage.append(": ").append(param.description());
+
+                                        if (param.defaultValue() != null && !param.defaultValue().isEmpty()) {
+                                            errorMessage.append(" (Default: ").append(param.defaultValue()).append(")");
+                                        }
+                                    }
+                                }
+
+                                // Add dependency information if any
+                                if (!metadata.dependencies().isEmpty()) {
+                                    errorMessage.append("\nDependencies for ").append(depName).append(": ")
+                                            .append(String.join(", ", metadata.dependencies()));
+                                }
+                            }
+                        }
+
+                        record.setError(errorMessage.toString());
+                    } else {
+                        record.setError("Execution skipped due to missing dependencies in other tools");
+                    }
+
+                    result.getExecutionRecords().add(record);
+                    intent.setState(ExecutionState.FAILED);
+                }
+
+                // Generate summary statistics
+                result.setSummary(generateSummary(result.getExecutionRecords()));
+
+                log.info("Analysis processing failed due to missing dependencies. " +
+                                "Total intents: {}, Failed: {}",
+                        result.getSummary().getTotalIntents(),
+                        result.getSummary().getFailed());
+
+                return result;
+            }
 
             // Execute tools in resolved order
             orderedIntents.forEach(intent -> {
@@ -135,6 +213,12 @@ public class ExecutionEngineService {
         log.debug("Feedback generated: complete={}, errors={}",
                 feedback.isComplete(),
                 !errorSummary.isEmpty() ? "yes" : "no");
+
+        // Generate default suggestions
+        feedback.generateDefaultSuggestions();
+
+        // Add execution summary
+        feedback.withSummary(result.getSummary());
 
         return feedback;
     }
@@ -263,7 +347,6 @@ public class ExecutionEngineService {
         }
     }
 
-
     /**
      * Executes a tool by making an HTTP request to its endpoint.
      * Includes retry capabilities for transient errors.
@@ -370,19 +453,38 @@ public class ExecutionEngineService {
         ExecutionSummary summary = new ExecutionSummary();
         summary.setTotalIntents(records.size());
 
-        long totalDuration = records.stream()
-                .filter(r -> r.getStatus() == ExecutionStatus.COMPLETED)
-                .mapToLong(ExecutionRecord::getDurationMillis)
-                .sum();
+        long totalDuration = 0;
+        long fastestExecution = Long.MAX_VALUE;
+        long slowestExecution = 0;
 
-        summary.setCompleted((int) records.stream()
-                .filter(r -> r.getStatus() == ExecutionStatus.COMPLETED)
-                .count());
+        int completed = 0;
+        int failed = 0;
 
-        summary.setFailed(summary.getTotalIntents() - summary.getCompleted());
-        summary.setAverageDuration(summary.getCompleted() > 0 ?
-                totalDuration / summary.getCompleted() : 0);
-        summary.setHasErrors(summary.getFailed() > 0);
+        for (ExecutionRecord record : records) {
+            if (record.getStatus() == ExecutionStatus.COMPLETED) {
+                completed++;
+                long duration = record.getDurationMillis();
+                totalDuration += duration;
+
+                if (duration < fastestExecution) {
+                    fastestExecution = duration;
+                }
+                if (duration > slowestExecution) {
+                    slowestExecution = duration;
+                }
+            } else if (record.getStatus() == ExecutionStatus.FAILED_PERMANENT ||
+                    record.getStatus() == ExecutionStatus.FAILED_RETRYABLE) {
+                failed++;
+            }
+        }
+
+        summary.setCompleted(completed);
+        summary.setFailed(failed);
+        summary.setAverageDuration(completed > 0 ? (double) totalDuration / completed : 0);
+        summary.setFastestExecution(completed > 0 ? fastestExecution : 0);
+        summary.setSlowestExecution(slowestExecution);
+        summary.setTotalDuration(totalDuration);
+        summary.setHasErrors(failed > 0);
 
         return summary;
     }

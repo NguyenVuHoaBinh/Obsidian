@@ -2,20 +2,16 @@ package viettel.dac.prototype.llm.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.openai.models.chat.completions.ChatCompletion;
-import com.openai.models.chat.completions.ChatCompletionCreateParams;
+import com.openai.client.OpenAIClient;
+import com.openai.client.okhttp.OpenAIOkHttpClient;
+import com.openai.models.ChatModel;
+import com.openai.models.responses.Response;
+import com.openai.models.responses.ResponseCreateParams;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
-import com.openai.client.OpenAIClient;
-import com.openai.client.okhttp.OpenAIOkHttpClient;
-import com.openai.models.responses.Response;
-import com.openai.models.responses.ResponseCreateParams;
-import com.openai.models.ChatModel;
-
 import viettel.dac.prototype.execution.enums.ExecutionState;
 import viettel.dac.prototype.execution.model.ExecutedIntent;
 import viettel.dac.prototype.execution.model.ExecutionFeedback;
@@ -198,18 +194,43 @@ public class OpenAiService implements LlmService {
     }
 
     /**
-     * Creates a prompt for intent analysis using the optimized conversation history.
+     * Creates a prompt for intent analysis with tools information in JSON format.
      */
     private String createIntentAnalysisPrompt(String userMessage, Conversation conversation) {
-        return String.format("""
-            Analyze the user message and previous context to identify intents and parameters.
-            Return a JSON object with the following structure:
+        try {
+            // Get tools in JSON format and format it for readability
+            String toolsJson = objectMapper.writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(toolService.getToolsForPrompt());
+
+            return String.format("""
+            # Intent Analysis Task
+            
+            Your task is to analyze the user's message to identify which tool(s) they want to use and extract parameter values.
+            
+            ## Available Tools (JSON Format)
+            
+            ```json
+            %s
+            ```
+            
+            ## Instructions
+            
+            1. Identify which tool(s) from the above JSON the user wants to use based on their message
+            2. Extract parameter values from the user's message that match the tool's parameters
+            3. For each identified tool, check if all required parameters are present
+            4. If no specific tool intent is detected, return an empty intents array
+            5. Carefully check the field Dependency of the tool, if missing, put the missing tool infront of the original tool, then retrieve missing parameters from the context or conversation history to complete the requirements.
+            
+            ## Response Format
+            
+            Return a valid JSON object with this structure:
+            ```json
             {
-              "confidence": 0.95,  // Overall confidence in the analysis
+              "confidence": 0.95,
               "intents": [
                 {
-                  "intent": "toolName",  // Must match an existing tool name
-                  "confidence": 0.9,     // Confidence for this specific intent
+                  "intent": "toolName",
+                  "confidence": 0.9,
                   "parameters": {
                     "param1": "value1",
                     "param2": "value2"
@@ -217,21 +238,24 @@ public class OpenAiService implements LlmService {
                 }
               ]
             }
+            ```
             
-            If no specific tool intent is detected, return an empty intents array.
-            If the tool missing the tool requirement, ask user to provide required information to complete.
+            ## User's Current Message
             
-            Current tools available: %s
+            %s
             
-            Current Message: %s
+            ## Conversation History
             
-            Conversation History:
             %s
             """,
-                toolService.getAllTools(),
-                userMessage,
-                conversationUtils.getFormattedHistory(conversation)
-        );
+                    toolsJson,
+                    userMessage,
+                    conversationUtils.getFormattedHistory(conversation)
+            );
+        } catch (Exception e) {
+            log.error("Error creating intent analysis prompt", e);
+            throw new LlmApiException("Failed to create intent analysis prompt", e);
+        }
     }
 
     /**
@@ -239,7 +263,7 @@ public class OpenAiService implements LlmService {
      */
     private String createResponseGenerationPrompt(Conversation conversation, ExecutionResult result) {
         return String.format("""
-            Generate a helpful, conversational response based on the following information.
+            Generate a helpful, conversational response based on the following information. Return response in Vietnamese and in short.
             Focus on addressing the user's original request while incorporating execution results.
             
             USER'S LATEST MESSAGE:
@@ -315,7 +339,7 @@ public class OpenAiService implements LlmService {
         }
 
         return String.format("""
-            Generate a helpful, conversational response based on the following information.
+            Generate a helpful, conversational response based on the following information. Return response in Vietnamese and in short.
             Focus on addressing the user's original request while incorporating execution results.
             
             USER'S LATEST MESSAGE:
@@ -350,7 +374,7 @@ public class OpenAiService implements LlmService {
      */
     private String createDirectResponsePrompt(String userMessage, Conversation conversation) {
         return String.format("""
-            Generate a helpful, conversational response to the user's message.
+            Generate a helpful, conversational response to the user's message. Return response in Vietnamese and in short.
             There were no specific tools or operations that needed to be executed.
             
             USER'S LATEST MESSAGE:

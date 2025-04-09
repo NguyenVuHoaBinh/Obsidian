@@ -24,7 +24,7 @@ public class Dependency {
     @ToString.Exclude
     private Tool tool;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "depends_on_id", nullable = false)
     @ToString.Exclude
     private Tool dependsOn;

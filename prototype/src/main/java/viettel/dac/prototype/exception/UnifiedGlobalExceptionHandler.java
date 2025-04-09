@@ -8,7 +8,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -17,13 +16,14 @@ import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import viettel.dac.prototype.execution.exception.*;
-import viettel.dac.prototype.tool.exception.*;
+import viettel.dac.prototype.tool.exception.DependencyNotFoundException;
+import viettel.dac.prototype.tool.exception.InvalidToolDefinitionException;
+import viettel.dac.prototype.tool.exception.ToolAlreadyExistsException;
+import viettel.dac.prototype.tool.exception.ToolExecutionException;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -133,6 +133,19 @@ public class UnifiedGlobalExceptionHandler {
         log.error("Invalid request: {}", ex.getMessage());
         meterRegistry.counter("execution.errors", "type", "invalid_request").increment();
         return buildErrorResponse(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(MissingDependencyException.class)
+    public ResponseEntity<ErrorResponse> handleMissingDependency(MissingDependencyException ex, WebRequest request) {
+        log.error("Missing dependencies detected: {}", ex.getMessage());
+        meterRegistry.counter("execution.errors", "type", "missing_dependency").increment();
+
+        return buildErrorResponse(
+                HttpStatus.BAD_REQUEST,
+                "MISSING_DEPENDENCIES",
+                ex.getMessage(),
+                request
+        );
     }
 
     // ==================== COMMON EXCEPTIONS ====================

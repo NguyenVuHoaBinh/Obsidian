@@ -354,4 +354,55 @@ public class ToolService {
 
         logger.debug("Tool definition validation passed for: {}", dto.getName());
     }
+
+    /**
+     * Gets a simplified representation of all tools with their parameters and dependencies.
+     * Optimized for inclusion in LLM prompts.
+     *
+     * @return A simplified list of tools with essential information
+     */
+    public List<Map<String, Object>> getToolsForPrompt() {
+        logger.info("Getting simplified tool information for prompt generation");
+        List<Tool> tools = toolRepository.findAllWithParameters();
+
+        return tools.stream()
+                .map(tool -> {
+                    Map<String, Object> toolInfo = new HashMap<>();
+
+                    // Basic tool information
+                    toolInfo.put("name", tool.getName());
+                    toolInfo.put("description", tool.getDescription());
+
+                    // Format parameters
+                    List<Map<String, Object>> parameters = tool.getParameters().stream()
+                            .map(param -> {
+                                Map<String, Object> paramInfo = new HashMap<>();
+                                paramInfo.put("name", param.getName());
+                                paramInfo.put("type", param.getType().toString());
+                                paramInfo.put("required", param.isRequired());
+                                paramInfo.put("description", param.getDescription());
+
+                                if (param.getDefaultValue() != null && !param.getDefaultValue().isEmpty()) {
+                                    paramInfo.put("defaultValue", param.getDefaultValue());
+                                }
+
+                                return paramInfo;
+                            })
+                            .collect(Collectors.toList());
+
+                    toolInfo.put("parameters", parameters);
+
+                    // Format dependencies
+                    List<String> dependencies = tool.getDependencies().stream()
+                            .map(dep -> dep.getDependsOn().getName())
+                            .collect(Collectors.toList());
+
+                    if (!dependencies.isEmpty()) {
+                        toolInfo.put("dependencies", dependencies);
+                    }
+
+                    return toolInfo;
+                })
+                .collect(Collectors.toList());
+    }
 }
