@@ -25,14 +25,16 @@ import viettel.dac.prototype.llm.exception.LlmApiException;
 import viettel.dac.prototype.llm.exception.LlmParsingException;
 import viettel.dac.prototype.llm.model.Conversation;
 import viettel.dac.prototype.llm.model.IntentAnalysisResult;
+import viettel.dac.prototype.llm.model.Message;
+import viettel.dac.prototype.llm.utils.ConversationUtils;
 import viettel.dac.prototype.tool.service.ToolService;
-
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Implementation of LLM service using OpenAI's API.
+ * Optimized implementation of LLM service using OpenAI's API.
+ * Uses the ConversationUtils to efficiently retrieve conversation data for prompts.
  */
 @Slf4j
 @Service
@@ -49,10 +51,10 @@ public class OpenAiService implements LlmService {
     private int maxConversationHistory;
 
     private final ObjectMapper objectMapper;
+    private final ToolService toolService;
+    private final ConversationUtils conversationUtils;
 
     private OpenAIClient openAIClient;
-
-    private final ToolService toolService;
 
     @PostConstruct
     public void init() {
@@ -69,7 +71,7 @@ public class OpenAiService implements LlmService {
     public IntentAnalysisResult analyzeIntent(String userMessage, Conversation conversation) {
         try {
             String prompt = createIntentAnalysisPrompt(userMessage, conversation);
-            log.debug("Sending intent analysis prompt to OpenAI");
+            log.info("Sending intent analysis prompt to OpenAI\n" + prompt);
 
             ResponseCreateParams params = ResponseCreateParams.builder()
                     .model(convertToModelEnum(defaultModel))
@@ -96,7 +98,7 @@ public class OpenAiService implements LlmService {
     public String generateResponse(Conversation conversation, ExecutionResult executionResult) {
         try {
             String prompt = createResponseGenerationPrompt(conversation, executionResult);
-            log.debug("Sending response generation prompt to OpenAI");
+            log.info("Sending response generation prompt to OpenAI\n" + prompt);
 
             ResponseCreateParams params = ResponseCreateParams.builder()
                     .model(convertToModelEnum(defaultModel))
@@ -121,7 +123,7 @@ public class OpenAiService implements LlmService {
     public String generateResponseFromFeedback(Conversation conversation, ExecutionFeedback feedback) {
         try {
             String prompt = createResponseFromFeedbackPrompt(conversation, feedback);
-            log.debug("Sending feedback-based response prompt to OpenAI");
+            log.info("Sending feedback-based response prompt to OpenAI\n" + prompt);
 
             ResponseCreateParams params = ResponseCreateParams.builder()
                     .model(convertToModelEnum(defaultModel))
@@ -145,7 +147,7 @@ public class OpenAiService implements LlmService {
     public String generateDirectResponse(String userMessage, Conversation conversation) {
         try {
             String prompt = createDirectResponsePrompt(userMessage, conversation);
-            log.debug("Sending direct response prompt to OpenAI");
+            log.info("Sending direct response prompt to OpenAI\n" + prompt);
 
             ResponseCreateParams params = ResponseCreateParams.builder()
                     .model(convertToModelEnum(defaultModel))
@@ -196,7 +198,7 @@ public class OpenAiService implements LlmService {
     }
 
     /**
-     * Creates a prompt for intent analysis.
+     * Creates a prompt for intent analysis using the optimized conversation history.
      */
     private String createIntentAnalysisPrompt(String userMessage, Conversation conversation) {
         return String.format("""
@@ -228,12 +230,12 @@ public class OpenAiService implements LlmService {
             """,
                 toolService.getAllTools(),
                 userMessage,
-                conversation.getFormattedHistory(maxConversationHistory)
+                conversationUtils.getFormattedHistory(conversation)
         );
     }
 
     /**
-     * Creates a prompt for response generation.
+     * Creates a prompt for response generation using the optimized conversation history.
      */
     private String createResponseGenerationPrompt(Conversation conversation, ExecutionResult result) {
         return String.format("""
@@ -259,10 +261,10 @@ public class OpenAiService implements LlmService {
             4. If all tools executed successfully, focus on summarizing the results
             5. If some tools failed, explain what worked and what didn't
             """,
-                conversation.getLatestUserMessage() != null ? conversation.getLatestUserMessage().getContent() : "",
+                getLatestUserMessageContent(conversation),
                 formatExecutionResults(result),
                 formatErrorSummary(result),
-                conversation.getFormattedHistory(maxConversationHistory)
+                conversationUtils.getFormattedHistory(conversation)
         );
     }
 
@@ -336,10 +338,10 @@ public class OpenAiService implements LlmService {
             5. If some tools failed, explain what worked and what didn't
             6. If suggestions are provided, incorporate them into your response
             """,
-                conversation.getLatestUserMessage() != null ? conversation.getLatestUserMessage().getContent() : "",
+                getLatestUserMessageContent(conversation),
                 feedback.isComplete() ? "All operations completed successfully" : "Some operations failed",
                 executedIntentsInfo.toString(),
-                conversation.getFormattedHistory(maxConversationHistory)
+                conversationUtils.getFormattedHistory(conversation)
         );
     }
 
@@ -364,8 +366,16 @@ public class OpenAiService implements LlmService {
                suggest that they rephrase their request to be more specific
             """,
                 userMessage,
-                conversation.getFormattedHistory(maxConversationHistory)
+                conversationUtils.getFormattedHistory(conversation)
         );
+    }
+
+    /**
+     * Gets the content of the latest user message.
+     */
+    private String getLatestUserMessageContent(Conversation conversation) {
+        Message latestUserMessage = conversationUtils.getLatestUserMessage(conversation);
+        return latestUserMessage != null ? latestUserMessage.getContent() : "";
     }
 
     /**

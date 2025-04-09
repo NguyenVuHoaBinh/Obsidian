@@ -58,7 +58,8 @@ public class ChatController {
             @Valid @RequestBody ChatRequest request,
 
             @Parameter(description = "Optional conversation ID for continuing conversations")
-            @RequestHeader(value = "X-Conversation-ID", required = false) String conversationId) {
+            @RequestHeader(value = "X-Conversation-ID", required = false) String conversationId,
+            @RequestParam(value = "createNew", defaultValue = "false") boolean createNew){
 
         log.info("Received chat message, conversation ID: {}", conversationId != null ? conversationId : "new");
 

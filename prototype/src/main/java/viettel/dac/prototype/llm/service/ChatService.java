@@ -12,24 +12,25 @@ import viettel.dac.prototype.llm.model.ChatRequest;
 import viettel.dac.prototype.llm.model.ChatResponse;
 import viettel.dac.prototype.llm.model.Conversation;
 import viettel.dac.prototype.llm.model.IntentAnalysisResult;
-import viettel.dac.prototype.llm.repository.ConversationRepository;
+import viettel.dac.prototype.llm.repository.RedisConversationRepository;
+import viettel.dac.prototype.llm.utils.ConversationUtils;
 
 /**
- * Service responsible for processing chat messages and managing the conversation flow.
- * Provides end-to-end integration between LLM and tool execution.
+ * Optimized service for processing chat messages using the improved Redis storage.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class ChatService {
+public class ChatService{
 
     private final LlmService llmService;
-    private final ConversationRepository conversationRepository;
+    private final RedisConversationRepository conversationRepository;
     private final ExecutionEngineService executionEngineService;
+    private final ConversationUtils conversationUtils;
 
     /**
      * Processes a chat message and returns a response.
-     * This method handles the entire flow from intent analysis to tool execution to response generation.
+     * Uses the optimized Redis repository for more efficient conversation management.
      *
      * @param request The chat request containing the user message
      * @param conversationId Optional conversation ID for existing conversations
@@ -43,7 +44,7 @@ public class ChatService {
             Conversation conversation = getOrCreateConversation(conversationId);
 
             // Add user message to conversation
-            conversation.addUserMessage(request.getMessage());
+            conversationUtils.addUserMessage(conversation, request.getMessage());
 
             // Analyze intent
             IntentAnalysisResult intentAnalysis = llmService.analyzeIntent(
@@ -56,8 +57,10 @@ public class ChatService {
             if (analysisResult.getIntents() == null || analysisResult.getIntents().isEmpty()) {
                 log.info("No intents detected, generating direct response");
                 String directResponse = llmService.generateDirectResponse(request.getMessage(), conversation);
-                conversation.addSystemMessage(directResponse);
-                conversationRepository.save(conversation);
+                conversationUtils.addSystemMessage(conversation, directResponse);
+
+                // No need to explicitly save the conversation as the utils handle it
+
                 return new ChatResponse(directResponse, conversation.getId(), false);
             }
 
@@ -72,16 +75,13 @@ public class ChatService {
             ExecutionFeedback feedback = executionEngineService.generateFeedback(executionResult);
 
             // Add execution result to conversation context
-            conversation.addExecutionResult(executionResult);
+            conversationUtils.addExecutionResult(conversation, executionResult);
 
             // Generate response based on execution results
             String systemResponse = llmService.generateResponseFromFeedback(conversation, feedback);
 
             // Add system response to conversation
-            conversation.addSystemMessage(systemResponse);
-
-            // Save conversation
-            conversationRepository.save(conversation);
+            conversationUtils.addSystemMessage(conversation, systemResponse);
 
             // Create response
             boolean requiresFollowUp = executionResult.getSummary().getFailed() > 0;
@@ -95,6 +95,7 @@ public class ChatService {
 
     /**
      * Gets an existing conversation or creates a new one.
+     * Uses the optimized repository implementation.
      */
     private Conversation getOrCreateConversation(String conversationId) {
         if (conversationId != null) {

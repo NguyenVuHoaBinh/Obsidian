@@ -186,3 +186,4 @@ logging:
     viettel.dac.prototype: INFO
     org.hibernate.SQL: WARN
     org.flywaydb: INFO
+
