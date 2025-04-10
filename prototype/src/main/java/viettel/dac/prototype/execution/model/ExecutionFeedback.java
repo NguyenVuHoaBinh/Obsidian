@@ -10,6 +10,7 @@ import viettel.dac.prototype.execution.enums.ExecutionStatus;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -195,4 +196,169 @@ public class ExecutionFeedback implements Serializable {
 
         return this;
     }
+    // Add these methods to the ExecutionFeedback class
+
+    /**
+     * Groups executed intents by name for better display and organization.
+     *
+     * @return A map of intent names to lists of executed intents
+     */
+    @JsonIgnore
+    public Map<String, List<ExecutedIntent>> getIntentsByName() {
+        return executedIntents.stream()
+                .collect(Collectors.groupingBy(ExecutedIntent::getIntent));
+    }
+
+    /**
+     * Generates a formatted summary of the execution, handling multiple instances
+     * of the same intent with different parameters.
+     *
+     * @return A formatted summary string
+     */
+    @JsonIgnore
+    public String getFormattedSummary() {
+        StringBuilder builder = new StringBuilder();
+        Map<String, List<ExecutedIntent>> intentsByName = getIntentsByName();
+
+        builder.append("Execution Summary:\n");
+        builder.append(String.format("- %d intents executed, %s complete\n",
+                executedIntents.size(), isComplete ? "all" : "not all"));
+
+        // Group by status for a quick overview
+        long successCount = executedIntents.stream()
+                .filter(ExecutedIntent::isSuccessful)
+                .count();
+        long failedCount = executedIntents.stream()
+                .filter(ExecutedIntent::hasFailed)
+                .count();
+
+        builder.append(String.format("- %d succeeded, %d failed\n", successCount, failedCount));
+
+        builder.append("\nDetailed Results:\n");
+        for (Map.Entry<String, List<ExecutedIntent>> entry : intentsByName.entrySet()) {
+            String intentName = entry.getKey();
+            List<ExecutedIntent> instances = entry.getValue();
+
+            builder.append(String.format("Intent: %s\n", intentName));
+
+            if (instances.size() > 1) {
+                builder.append(String.format("  Multiple executions (%d):\n", instances.size()));
+                for (int i = 0; i < instances.size(); i++) {
+                    ExecutedIntent instance = instances.get(i);
+                    builder.append(String.format("  Instance %d: Status=%s\n",
+                            i+1, instance.getStatus()));
+
+                    // Format parameters
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> params = instance.getParameterMap();
+                    if (params != null && !params.isEmpty()) {
+                        builder.append("    Parameters: ");
+                        boolean first = true;
+                        for (Map.Entry<String, Object> param : params.entrySet()) {
+                            if (!first) builder.append(", ");
+                            first = false;
+                            builder.append(param.getKey()).append("=");
+                            if (param.getValue() instanceof String) {
+                                builder.append("\"").append(param.getValue()).append("\"");
+                            } else {
+                                builder.append(param.getValue());
+                            }
+                        }
+                        builder.append("\n");
+                    }
+
+                    // Add result or error info
+                    if (instance.isSuccessful() && instance.getResult() != null) {
+                        builder.append("    Result: ").append(formatResult(instance.getResult())).append("\n");
+                    } else if (instance.hasFailed() && instance.getError() != null) {
+                        builder.append("    Error: ").append(instance.getError()).append("\n");
+                    }
+                }
+            } else if (instances.size() == 1) {
+                ExecutedIntent instance = instances.get(0);
+                builder.append(String.format("  Status: %s\n", instance.getStatus()));
+
+                // Format parameters
+                @SuppressWarnings("unchecked")
+                Map<String, Object> params = instance.getParameterMap();
+                if (params != null && !params.isEmpty()) {
+                    builder.append("  Parameters: ");
+                    boolean first = true;
+                    for (Map.Entry<String, Object> param : params.entrySet()) {
+                        if (!first) builder.append(", ");
+                        first = false;
+                        builder.append(param.getKey()).append("=");
+                        if (param.getValue() instanceof String) {
+                            builder.append("\"").append(param.getValue()).append("\"");
+                        } else {
+                            builder.append(param.getValue());
+                        }
+                    }
+                    builder.append("\n");
+                }
+
+                // Add result or error info
+                if (instance.isSuccessful() && instance.getResult() != null) {
+                    builder.append("  Result: ").append(formatResult(instance.getResult())).append("\n");
+                } else if (instance.hasFailed() && instance.getError() != null) {
+                    builder.append("  Error: ").append(instance.getError()).append("\n");
+                }
+            }
+        }
+
+        // Add suggestions if available
+        if (suggestions != null && !suggestions.isEmpty()) {
+            builder.append("\nSuggestions:\n");
+            for (String suggestion : suggestions) {
+                builder.append("- ").append(suggestion).append("\n");
+            }
+        }
+
+        return builder.toString();
+    }
+
+    /**
+     * Formats a result object for display.
+     *
+     * @param result The result object to format
+     * @return A formatted string representation of the result
+     */
+    private String formatResult(Object result) {
+        if (result == null) {
+            return "null";
+        } else if (result instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> resultMap = (Map<String, Object>) result;
+            if (resultMap.isEmpty()) {
+                return "{}";
+            }
+
+            StringBuilder sb = new StringBuilder("{");
+            boolean first = true;
+            int count = 0;
+            for (Map.Entry<String, Object> entry : resultMap.entrySet()) {
+                if (count >= 3) {
+                    sb.append(", ...");
+                    break;
+                }
+                if (!first) {
+                    sb.append(", ");
+                }
+                first = false;
+                sb.append(entry.getKey()).append("=");
+                Object value = entry.getValue();
+                if (value instanceof String) {
+                    sb.append("\"").append(value).append("\"");
+                } else {
+                    sb.append(value);
+                }
+                count++;
+            }
+            sb.append("}");
+            return sb.toString();
+        } else {
+            return result.toString();
+        }
+    }
+
 }

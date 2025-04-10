@@ -35,17 +35,11 @@ const Icons = {
         <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
         </svg>
-    ),
-    Trash: (props) => (
-        <svg xmlns="http://www.w3.org/2000/svg" width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}>
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-        </svg>
     )
 };
 
 // Chat Interface Component with Operation Logging
-function ChatInterface() {
+function Chatinterface() {
     const [messages, setMessages] = React.useState([]);
     const [newMessage, setNewMessage] = React.useState('');
     const [conversationId, setConversationId] = React.useState(null);
@@ -76,13 +70,9 @@ function ChatInterface() {
 
     const scrollToBottom = (type) => {
         if (type === 'messages') {
-            if (messagesEndRef.current) {
-                messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-            }
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         } else if (type === 'logs') {
-            if (logsEndRef.current) {
-                logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-            }
+            logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
     };
 
@@ -107,11 +97,6 @@ function ChatInterface() {
                 status
             }
         ]);
-    };
-
-    // Clear all logs
-    const clearLogs = () => {
-        setOperationLogs([]);
     };
 
     const sendMessage = async (e) => {
@@ -157,7 +142,7 @@ function ChatInterface() {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to send message: ${response.status} ${response.statusText}`);
+                throw new Error('Failed to send message');
             }
 
             // Calculate execution time
@@ -170,23 +155,23 @@ function ChatInterface() {
                 localStorage.setItem('conversationId', newConversationId);
             }
 
-            // Get server-side execution time if available
-            const serverExecutionTime = response.headers.get('X-Execution-Time');
-            const executedTools = response.headers.get('X-Executed-Tools');
-
             const data = await response.json();
 
             // Add system response to UI
             setMessages(msgs => [...msgs, { type: 'system', content: data.message }]);
             setNewMessage('');
 
+            // Check if there's execution time data in the response headers
+            const serverExecutionTime = response.headers.get('X-Execution-Time');
+            const executionTools = response.headers.get('X-Executed-Tools');
+
             // Log the completed operation
             addLogEntry(
-                executedTools ? `Message processed (${executedTools})` : 'Message processed',
+                executionTools ? `Message processed (${executionTools})` : 'Message processed',
                 serverExecutionTime || executionTime
             );
 
-            // If we have detailed tool execution times from the response
+            // If we have detailed tool execution times
             if (data.executionDetails && Array.isArray(data.executionDetails)) {
                 data.executionDetails.forEach(detail => {
                     addLogEntry(
@@ -307,16 +292,15 @@ function ChatInterface() {
                     <Icons.Activity className="mr-2" />
                     <h1 className="text-xl font-bold">Operation Logs</h1>
                     <button
-                        onClick={clearLogs}
+                        onClick={() => setOperationLogs([])}
                         className="ml-3 px-3 py-1 bg-gray-500 hover:bg-gray-600 text-white font-bold rounded-full flex items-center"
                         title="Clear logs"
                     >
-                        <Icons.Trash size={16} className="mr-1" />
                         Clear
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-auto mb-4 p-4 bg-gray-800 text-gray-100 rounded-lg shadow font-mono text-sm scrollbar-thin">
+                <div className="flex-1 overflow-auto mb-4 p-4 bg-gray-800 text-gray-100 rounded-lg shadow font-mono text-sm">
                     {operationLogs.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-gray-400">
                             <Icons.Clock size={48} className="mb-2" />
@@ -352,7 +336,7 @@ function ChatInterface() {
                         <div>
                             <p>Failed: {operationLogs.filter(log => log.status === 'error').length}</p>
                             <p>Avg Time: {operationLogs.length > 0 ?
-                                Math.round(operationLogs.reduce((acc, log) => acc + (parseInt(log.executionTime) || 0), 0) / operationLogs.length) : 0}ms
+                                Math.round(operationLogs.reduce((acc, log) => acc + (log.executionTime || 0), 0) / operationLogs.length) : 0}ms
                             </p>
                         </div>
                     </div>
@@ -362,7 +346,8 @@ function ChatInterface() {
     );
 }
 
-// Use the modern React 18 API to render
-const rootElement = document.getElementById('root');
-const root = ReactDOM.createRoot(rootElement);
-root.render(<ChatInterface />);
+// Render the app
+ReactDOM.render(
+    <Chatinterface />,
+    document.getElementById('root')
+);

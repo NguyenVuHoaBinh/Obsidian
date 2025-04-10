@@ -188,4 +188,21 @@ public class ExecutionRecord implements Serializable {
         copy.startTime = LocalDateTime.now();
         return copy;
     }
+
+    /**
+     * Creates a display name that combines the intent name with a hash of the parameters.
+     * This is useful for displaying multiple executions of the same intent with different parameters.
+     *
+     * @return A display name that includes the intent name and a parameter hash
+     */
+    @JsonIgnore
+    public String getDisplayName() {
+        if (parameters == null || parameters.isEmpty()) {
+            return intent;
+        }
+
+        // Create a parameter hash that can be used to differentiate multiple executions
+        int paramHash = parameters.hashCode();
+        return String.format("%s-%08x", intent, paramHash);
+    }
 }

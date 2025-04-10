@@ -31,28 +31,35 @@ public class DependencyResolver {
         }
 
         log.debug("Resolving execution order for {} intents", intents.size());
-        log.trace("Intent list: {}", intents.stream().map(Intent::getIntent).collect(Collectors.joining(", ")));
+        List<String> intentNames = intents.stream()
+                .map(intent -> intent.getIntent() + "#" + intent.getIntentId().substring(0, 8))
+                .collect(Collectors.toList());
+        log.trace("Intent list: {}", String.join(", ", intentNames));
 
         // Check for missing dependencies before building the graph
         checkMissingDependencies(intents);
 
-        // Build a dependency graph
+        // Build a dependency graph using intent IDs as keys
         Map<String, Set<String>> dependencyGraph = buildDependencyGraph(intents);
         log.trace("Dependency graph built: {}", dependencyGraph);
 
         // Perform topological sorting
         List<Intent> result = topologicalSort(intents, dependencyGraph);
+
         log.debug("Resolved execution order: {}",
-                result.stream().map(Intent::getIntent).collect(Collectors.joining(", ")));
+                result.stream()
+                        .map(intent -> intent.getIntent() + "#" + intent.getIntentId().substring(0, 8) +
+                                " (" + intent.getParameterSummary() + ")")
+                        .collect(Collectors.joining(", ")));
 
         return result;
     }
 
     /**
-     * Important method that checks for missing dependencies with special handling for OR relationships
+     * Checks for missing dependencies with special handling for OR relationships
      */
     private void checkMissingDependencies(List<Intent> intents) {
-        // Collect all tool names from intents
+        // Collect all tool names from intents - we can have multiple intents with the same name
         Set<String> availableToolNames = intents.stream()
                 .map(Intent::getIntent)
                 .collect(Collectors.toSet());
@@ -180,19 +187,32 @@ public class DependencyResolver {
         }
     }
 
+    /**
+     * Builds a dependency graph using intent IDs as keys instead of intent names.
+     * This allows multiple instances of the same tool to be included in the execution order.
+     */
     private Map<String, Set<String>> buildDependencyGraph(List<Intent> intents) {
         Map<String, Set<String>> graph = new HashMap<>();
-        Set<String> allToolNames = new HashSet<>();
+        Map<String, Intent> intentMap = new HashMap<>();
+        Map<String, List<Intent>> intentsByName = new HashMap<>();
 
         // Initialize graph with empty dependency sets for each intent
+        // and build maps for efficient lookup
         for (Intent intent : intents) {
-            String toolName = intent.getIntent();
-            graph.put(toolName, new HashSet<>());
-            allToolNames.add(toolName);
+            String intentId = intent.getIntentId();
+            graph.put(intentId, new HashSet<>());
+            intentMap.put(intentId, intent);
+
+            // Group intents by name for dependency resolution
+            intentsByName.computeIfAbsent(intent.getIntent(), k -> new ArrayList<>())
+                    .add(intent);
         }
 
-        // Populate dependencies for each tool
-        for (String toolName : allToolNames) {
+        // Populate dependencies for each intent
+        for (Intent intent : intents) {
+            String intentId = intent.getIntentId();
+            String toolName = intent.getIntent();
+
             Tool tool = toolRepository.findByName(toolName)
                     .orElseThrow(() -> {
                         log.error("Tool not found: {}", toolName);
@@ -204,10 +224,17 @@ public class DependencyResolver {
             for (Dependency dependency : dependencies) {
                 String dependencyName = dependency.getDependsOn().getName();
 
-                // Only include dependencies that are in the current intent list
-                if (allToolNames.contains(dependencyName)) {
-                    graph.get(toolName).add(dependencyName);
-                    log.trace("Added dependency: {} -> {}", toolName, dependencyName);
+                // Find all intents with this dependency name
+                List<Intent> dependencyIntents = intentsByName.get(dependencyName);
+                if (dependencyIntents != null && !dependencyIntents.isEmpty()) {
+                    // If there are multiple instances of the dependency, choose the first one
+                    // This is a simplification - in a more advanced implementation, you might
+                    // want to consider parameter compatibility or other factors
+                    String dependencyId = dependencyIntents.get(0).getIntentId();
+                    graph.get(intentId).add(dependencyId);
+                    log.trace("Added dependency: {} -> {}",
+                            intent.getDisplayName(),
+                            dependencyIntents.get(0).getDisplayName());
                 }
             }
         }
@@ -215,18 +242,23 @@ public class DependencyResolver {
         return graph;
     }
 
+    /**
+     * Performs a topological sort of the intents based on their dependencies.
+     * Uses intent IDs to handle multiple instances of the same tool.
+     * Does not check for circular dependencies.
+     */
     private List<Intent> topologicalSort(List<Intent> intents, Map<String, Set<String>> dependencyGraph) {
-        // Create a map for intent lookup by name
+        // Create a map for intent lookup by ID
         Map<String, Intent> intentMap = intents.stream()
-                .collect(Collectors.toMap(Intent::getIntent, intent -> intent));
+                .collect(Collectors.toMap(Intent::getIntentId, intent -> intent));
 
         // Calculate in-degree for each node (number of dependencies)
         Map<String, Integer> inDegree = new HashMap<>();
         for (String node : dependencyGraph.keySet()) {
             inDegree.put(node, 0);
         }
-        for (Set<String> dependencies : dependencyGraph.values()) {
-            for (String dependency : dependencies) {
+        for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
+            for (String dependency : entry.getValue()) {
                 inDegree.put(dependency, inDegree.getOrDefault(dependency, 0) + 1);
             }
         }
@@ -239,16 +271,19 @@ public class DependencyResolver {
             }
         }
 
-        List<String> sortedNodes = new ArrayList<>();
+        List<String> sortedNodeIds = new ArrayList<>();
 
         // Process the queue
         while (!queue.isEmpty()) {
             String current = queue.poll();
-            sortedNodes.add(current);
+            sortedNodeIds.add(current);
 
-            // For each node that depends on the current node
-            for (String dependent : dependencyGraph.keySet()) {
-                Set<String> dependencies = dependencyGraph.get(dependent);
+            // For each node in the graph
+            for (Map.Entry<String, Set<String>> entry : dependencyGraph.entrySet()) {
+                String dependent = entry.getKey();
+                Set<String> dependencies = entry.getValue();
+
+                // If it depends on the current node
                 if (dependencies.contains(current)) {
                     // Reduce its in-degree
                     inDegree.put(dependent, inDegree.get(dependent) - 1);
@@ -261,8 +296,25 @@ public class DependencyResolver {
             }
         }
 
+        // If we detect a circular dependency, still return what we've got so far
+        // plus any remaining nodes (this is instead of throwing an exception)
+        if (sortedNodeIds.size() < dependencyGraph.size()) {
+            log.warn("Possible circular dependency detected in the execution graph. " +
+                    "Continuing with partial ordering.");
+
+            // Add any remaining nodes that weren't included in the sort
+            Set<String> processedNodes = new HashSet<>(sortedNodeIds);
+            for (String nodeId : dependencyGraph.keySet()) {
+                if (!processedNodes.contains(nodeId)) {
+                    sortedNodeIds.add(nodeId);
+                    log.debug("Added unprocessed node to result: {}",
+                            intentMap.get(nodeId).getDisplayName());
+                }
+            }
+        }
+
         // Map sorted nodes back to intents
-        return sortedNodes.stream()
+        return sortedNodeIds.stream()
                 .map(intentMap::get)
                 .collect(Collectors.toList());
     }

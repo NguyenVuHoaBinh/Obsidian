@@ -404,6 +404,7 @@ public class OpenAiService implements LlmService {
 
     /**
      * Parses the LLM response to extract intent analysis.
+     * Makes sure each intent gets a unique ID.
      */
     private IntentAnalysisResult parseIntentAnalysisResponse(String response) {
         try {
@@ -429,6 +430,8 @@ public class OpenAiService implements LlmService {
 
             for (JsonNode intentNode : intentsNode) {
                 Intent intent = new Intent();
+                // Generate a new UUID for each intent
+                intent.setIntentId(UUID.randomUUID().toString());
                 intent.setIntent(intentNode.path("intent").asText());
                 intent.setConfidence(intentNode.path("confidence").asDouble(0.0));
                 intent.setState(ExecutionState.PENDING);

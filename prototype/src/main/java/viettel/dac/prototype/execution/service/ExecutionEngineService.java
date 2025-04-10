@@ -488,4 +488,99 @@ public class ExecutionEngineService {
 
         return summary;
     }
+    /**
+     * Formats execution results for logs and reporting, handling multiple instances of the same intent.
+     */
+    private String formatExecutionResults(List<ExecutionRecord> records) {
+        if (records == null || records.isEmpty()) {
+            return "No intents executed.";
+        }
+
+        // Group records by intent name
+        Map<String, List<ExecutionRecord>> recordsByIntent = records.stream()
+                .collect(Collectors.groupingBy(ExecutionRecord::getIntent));
+
+        StringBuilder sb = new StringBuilder();
+
+        for (Map.Entry<String, List<ExecutionRecord>> entry : recordsByIntent.entrySet()) {
+            String intentName = entry.getKey();
+            List<ExecutionRecord> intentRecords = entry.getValue();
+
+            sb.append("Intent '").append(intentName).append("': ");
+
+            if (intentRecords.size() > 1) {
+                sb.append("Multiple executions (").append(intentRecords.size()).append("):\n");
+
+                for (int i = 0; i < intentRecords.size(); i++) {
+                    ExecutionRecord record = intentRecords.get(i);
+                    sb.append("  - Execution ").append(i + 1)
+                            .append(" (").append(record.getDisplayName()).append("): ")
+                            .append(record.getStatus())
+                            .append(" - Parameters: ").append(formatParameters(record.getParameters()));
+
+                    if (record.getStatus() == ExecutionStatus.COMPLETED) {
+                        sb.append(" - Result: ").append(formatResult(record.getResult()));
+                    } else if (record.hasFailed()) {
+                        sb.append(" - Error: ").append(record.getError());
+                    }
+
+                    sb.append("\n");
+                }
+            } else if (intentRecords.size() == 1) {
+                ExecutionRecord record = intentRecords.get(0);
+                sb.append(record.getStatus())
+                        .append(" - Parameters: ").append(formatParameters(record.getParameters()));
+
+                if (record.getStatus() == ExecutionStatus.COMPLETED) {
+                    sb.append(" - Result: ").append(formatResult(record.getResult()));
+                } else if (record.hasFailed()) {
+                    sb.append(" - Error: ").append(record.getError());
+                }
+
+                sb.append("\n");
+            }
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Formats parameters map for display
+     */
+    private String formatParameters(Map<String, Object> parameters) {
+        if (parameters == null || parameters.isEmpty()) {
+            return "{}";
+        }
+
+        return parameters.entrySet().stream()
+                .map(e -> e.getKey() + "=" + formatValue(e.getValue()))
+                .collect(Collectors.joining(", ", "{", "}"));
+    }
+
+    /**
+     * Formats a parameter value for display
+     */
+    private String formatValue(Object value) {
+        if (value == null) {
+            return "null";
+        } else if (value instanceof String) {
+            return "\"" + value + "\"";
+        } else {
+            return value.toString();
+        }
+    }
+
+    /**
+     * Formats result map for display
+     */
+    private String formatResult(Map<String, Object> result) {
+        if (result == null || result.isEmpty()) {
+            return "{}";
+        }
+
+        return result.entrySet().stream()
+                .limit(3) // Limit to first 3 entries to avoid very long strings
+                .map(e -> e.getKey() + "=" + formatValue(e.getValue()))
+                .collect(Collectors.joining(", ", "{", result.size() > 3 ? ", ...}" : "}"));
+    }
 }

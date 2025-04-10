@@ -28,6 +28,13 @@ import java.util.*;
 public class Intent implements Serializable {
     private static final long serialVersionUID = 1L;
 
+    /**
+     * Unique identifier for this intent instance
+     */
+    @Schema(description = "Unique identifier for this intent instance")
+    @Builder.Default
+    private String intentId = UUID.randomUUID().toString();
+
     @Schema(description = "The name of the intent (tool to execute)", example = "GetWeather")
     @NotBlank(message = "Intent name is required")
     @Size(max = 100, message = "Intent name must not exceed 100 characters")
@@ -154,5 +161,48 @@ public class Intent implements Serializable {
     @JsonIgnore
     public boolean hasFailed() {
         return state == ExecutionState.FAILED;
+    }
+
+    /**
+     * Returns a display name for the intent that includes parameter information.
+     * Useful for logging and debugging multiple instances of the same intent.
+     *
+     * @return A descriptive name including the intent name and parameters hash
+     */
+    @JsonIgnore
+    public String getDisplayName() {
+        return String.format("%s#%s", intent, intentId.substring(0, 8));
+    }
+
+    /**
+     * Returns a short string representation of the parameters.
+     *
+     * @return A concise string representation of the parameters
+     */
+    @JsonIgnore
+    public String getParameterSummary() {
+        if (parameters.isEmpty()) {
+            return "no parameters";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+
+        for (Map.Entry<String, Object> entry : parameters.entrySet()) {
+            if (!first) {
+                sb.append(", ");
+            }
+            first = false;
+
+            sb.append(entry.getKey()).append("=");
+            Object value = entry.getValue();
+            if (value instanceof String) {
+                sb.append("\"").append(value).append("\"");
+            } else {
+                sb.append(value);
+            }
+        }
+
+        return sb.toString();
     }
 }

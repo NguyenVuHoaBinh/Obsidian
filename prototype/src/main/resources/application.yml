@@ -133,7 +133,6 @@ llm:
   api:
     url: https://api.openai.com/v1/chat/completions  # OpenAI API endpoint
     key:
-  openai:
     model: gpt-4o
     # You can remove this if you're using llm.api.key instead
     api-key:

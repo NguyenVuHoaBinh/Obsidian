@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 import viettel.dac.prototype.execution.enums.ExecutionStatus;
 
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -142,5 +143,24 @@ public class ExecutedIntent implements Serializable {
                 .result(record.getResult())
                 .error(record.getError())
                 .build();
+    }
+    /**
+     * Gets the parameters as a map from the result object.
+     * This is a helper method for accessing parameter information stored in results.
+     *
+     * @return The parameters map, or an empty map if not available
+     */
+    @JsonIgnore
+    public Map<String, Object> getParameterMap() {
+        if (this.getResult() instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> resultMap = (Map<String, Object>) this.getResult();
+            if (resultMap.containsKey("parameters")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> params = (Map<String, Object>) resultMap.get("parameters");
+                return params;
+            }
+        }
+        return new HashMap<>();
     }
 }
